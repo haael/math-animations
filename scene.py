@@ -1,309 +1,213 @@
 #!/usr/bin/python3
 
-import gi
-gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
+
 import cairo
-from signal import signal, SIGTERM
 from math import *
 from asyncio import run, set_event_loop_policy, sleep, gather
-from asyncio_glib import GLibEventLoopPolicy
+
+from shapes import *
+from animations import *
 
 
-set_event_loop_policy(GLibEventLoopPolicy())
-
-
-viewport_width = viewport_height = 0
-scene_width = 1920
-scene_height = 1080
-
-
-def color(s):
-	if s[0] != '#':
-		raise ValueError
-	elif len(s) == 3 + 1:
-		r = int(s[1:2], 16) / 15
-		g = int(s[2:3], 16) / 15
-		b = int(s[3:4], 16) / 15
-		a = 1
-	elif len(s) == 4 + 1:
-		r = int(s[1:2], 16) / 15
-		g = int(s[2:3], 16) / 15
-		b = int(s[3:4], 16) / 15
-		a = int(s[4:5], 16) / 15
-	elif len(s) == 6 + 1:
-		r = int(s[1:3], 16) / 255
-		g = int(s[3:5], 16) / 255
-		b = int(s[5:7], 16) / 255
-		a = 1
-	elif len(s) == 8 + 1:
-		r = int(s[1:3], 16) / 255
-		g = int(s[3:5], 16) / 255
-		b = int(s[5:7], 16) / 255
-		a = int(s[7:9], 16) / 255
-	else:
-		raise ValueError
-	
-	return r, g, b, a
-
-
-class Actor:
-	def __init__(self, x, y, fill, stroke, alpha=1, scale=(1, 1), rotate=0):
-		self.x = x
-		self.y = y
-		if isinstance(fill, str): fill = color(fill)
-		if isinstance(stroke, str): stroke = color(stroke)
-		if fill is None: fill = 0, 0, 0, 0
-		if stroke is None: stroke = 0, 0, 0, 0
-		self.fill = list(fill)
-		self.stroke = list(stroke)
-		self.alpha = alpha
-		self.scale = list(scale)
-		self.rotate = rotate
-		self.child = {}
-	
-	def __getitem__(self, name):
-		return self.child[name]
-	
-	def __setitem__(self, name, actor):
-		self.child[name] = actor
-	
-	def __delitem__(self, n):
-		del self.child[name]
-	
-	def render(self, ctx, alpha=1):
-		ctx.save()
-		
-		ctx.translate(self.x, self.y)
-		
-		try:
-			scale_x, scale_y = self.scale
-			ctx.scale(scale_x, scale_y)
-		except TypeError:
-			if any(_x != 1 for _x in self.scale):
-				ctx.scale(self.scale[0], self.scale[0])
-		
-		if self.rotate:
-			ctx.rotate(self.rotate)
-		
-		for item in self.child.values():
-			item.render(ctx, self.alpha * alpha)
-		
-		ctx.restore()
-
-
-class Circle(Actor):
-	def __init__(self, radius, x, y, fill, stroke, **kwargs):
-		super().__init__(x, y, fill, stroke, **kwargs)
-		self.radius = radius
-	
-	def render(self, ctx, alpha=1):
-		if alpha <= 0: return
-		
-		ctx.arc(self.x, self.y, self.radius, 0, 2 * pi)
-		
-		if any(self.fill):
-			ctx.set_source_rgba(*self.fill[:3], self.fill[3] * self.alpha * alpha)
-			ctx.fill_preserve()
-		
-		if any(self.stroke):
-			ctx.set_source_rgba(*self.stroke[:3], self.stroke[3] * self.alpha * alpha)
-			ctx.stroke_preserve()
-		
-		ctx.new_path()
-		
-		super().render(ctx, alpha)
-
-
-class Line(Actor):
-	def __init__(self, length, width, x, y, fill, stroke, **kwargs):
-		super().__init__(x, y, fill, stroke, **kwargs)
-		self.length = length
-		self.width = width
-	
-	def render(self, ctx, alpha=1):
-		if alpha <= 0: return
-		
-		if any(self.stroke):
-			ctx.set_line_width(self.width)
-			ctx.move_to(self.x, self.y)
-			ctx.line_to(self.x + self.length * cos(self.rotate), self.y + self.length * sin(self.rotate))
-			ctx.set_source_rgba(*self.stroke[:3], self.stroke[3] * self.alpha * alpha)
-			ctx.stroke()
-		
-		ctx.new_path()
-		
-		super().render(ctx, alpha)
-
-
-class Text(Actor):
-	def __init__(self, text, size, x, y, fill, stroke, **kwargs):
-		super().__init__(x, y, fill, stroke, **kwargs)
-		self.text = text
-		self.size = size
-	
-	def render(self, ctx, alpha=1):
-		if alpha <= 0: return
-		
-		if any(self.fill):
-			ctx.move_to(self.x, self.y)
-			ctx.set_font_size(self.size)
-			ctx.text_path(self.text)
-			ctx.set_source_rgba(*self.stroke[:3], self.stroke[3] * self.alpha * alpha)
-			ctx.fill()
-		
-		ctx.new_path()
-		
-		super().render(ctx, alpha)
-
-
-
-
-scene = Actor(scene_width / 2, scene_height / 2, None, None)
-
-
-async def fadein(actor, duration):
-	steps = ceil(25 * duration)
-	for n in range(steps):
-		actor.alpha = n**2 / steps**2
-		await sleep(1 / 25)
-	
-	actor.alpha = 1
-
-
-async def fadeout(actor, duration):
-	steps = ceil(25 * duration)
-	for n in range(steps):
-		actor.alpha = (steps - n - 1)**2 / steps**2
-		await sleep(1 / 25)
-	
-	actor.alpha = 0
-
-
-async def translate(actor, tx, ty, duration):
-	bx = actor.x
-	by = actor.y
-	steps = ceil(25 * duration)
-	for n in range(steps):
-		actor.x = bx + tx * n / steps
-		actor.y = by + ty * n / steps
-		await sleep(1 / 25)
-	
-	actor.x = bx + tx
-	actor.y = by + ty
-
-
-async def rotate(actor, angle, duration):
-	start = actor.rotate
-	steps = ceil(25 * duration)
-	for n in range(0, steps):
-		actor.rotate = start + angle * n / steps
-		await sleep(1 / 25)
-	
-	actor.rotate = start + angle
-
-
-async def animate_button():
-	global scene
-	
-	scene = Circle(100, scene_width / 2, 0, '#800', '#f0f', alpha=0)
+async def animate_button(scene):
+	rr = randbelow(1000000)
+	group = Circle(100, scene.scene_width / 2, 0, '#800', '#f0f', alpha=0)
+	scene[f'animate_button_{rr}'] = group
 	await sleep(0.5)
 	
 	await gather(
-		translate(scene, 0, scene_height / 2, 1.5),
-		fadein(scene, 1.5)
+		translate(group, 0, scene.scene_height / 2, 1.5),
+		fadein(group, 1.5)
 	)
 	
-	scene['one'] = Circle(10, 0, 20, '#0f0', '#0ff', alpha=0)
-	scene['two'] = Circle(10, 0, -20, '#0f0', '#0ff', alpha=0)
-	scene['three'] = Circle(10, 20, 0, '#0f0', '#0ff', alpha=0)
-	scene['four'] = Circle(10, -20, 0, '#f00', '#f00', alpha=0)
+	group['one'] = Circle(10, 0, 20, '#0f0', '#0ff', alpha=0)
+	group['two'] = Circle(10, 0, -20, '#0f0', '#0ff', alpha=0)
+	group['three'] = Circle(10, 20, 0, '#0f0', '#0ff', alpha=0)
+	group['four'] = Circle(10, -20, 0, '#f00', '#f00', alpha=0)
 	
 	await gather(
-		fadein(scene['one'], 0.5),
-		fadein(scene['two'], 1),
-		fadein(scene['three'], 1.5),
-		fadein(scene['four'], 2)
+		fadein(group['one'], 0.5),
+		fadein(group['two'], 1),
+		fadein(group['three'], 1.5),
+		fadein(group['four'], 2)
 	)
-	await rotate(scene, pi / 2, 1)
+	await rotate(group, pi / 2, 1)
 	await sleep(1)
-	await fadeout(scene, 1.5)
+	await fadeout(group, 1.5)
 	await sleep(1)
+	del scene[f'animate_button_{rr}']
 
 
-async def animate_number_line():
-	global scene
+async def animate_complex_plane(scene):
+	rr = randbelow(1000000)
+	group = Actor(scene.scene_width / 2, scene.scene_height / 2, '#000', '#000')
+	scene[f'animate_complex_plane_{rr}'] = group
 	
-	scene = Actor(scene_width / 2, scene_height / 2, '#000', '#000')
-	line_r = Line(scene_width / 2, 1.2, 0, 0, '#000', '#000')
-	scene['line_r'] = line_r
+	group['central_point'] = Circle(2.5, 0, 0, '#000', '#000')
+	
+	line_r = Line(scene.scene_width / 2, 1.2, 0, 0, '#000', '#000')
+	group['line_r'] = line_r
 	await sleep(1.2)
 	
 	for n in range(20):
 		line_r[str(n)] = Line(10, 1.2, 50 * n, -5, '#000', '#000', rotate=pi/2)
-		line_r['n' + str(n)] = Text(str(n), 20, 50 * n, -10, '#000', '#000')
+		line_r['n' + str(n)] = Text(str(n), 20, 50 * n, -25, '#000')
 		await sleep(0.05)
 	await sleep(1.2)
-
-
-async def animate():
-	await animate_button()
-	await animate_number_line()
-	window.close()
-
-
-def draw(widget, ctx):
-	scale = min(viewport_width / scene_width, viewport_height / scene_height)
-	if not scale: return
 	
-	ctx.set_source_rgb(0, 0, 0)
-	ctx.paint()
+	line_l = Line(scene.scene_width / 2, 1.2, 0, 0, '#00f', '#00f')
+	neg_numbers = Actor(0, 0, None, None, alpha=0)
+	for n in range(20):
+		line_l[str(n)] = Line(10, 1.2, 50 * n, -5, '#00f', '#00f', rotate=pi/2)
+		if n > 0:
+			neg_numbers['n' + str(n)] = NonrotatedText(str(-n), 20, 50 * n, -25, '#00f')
+	line_l['neg_numbers'] = neg_numbers
+	group['line_l'] = line_l
 	
-	ctx.translate((viewport_width - scene_width * scale) / 2, (viewport_height - scene_height * scale) / 2)
-	ctx.scale(scale, scale)
-	ctx.rectangle(0, 0, scene_width, scene_height)
-	ctx.clip()
-	ctx.set_source_rgb(1, 1, 1)
-	ctx.paint()
+	await gather(fadein(neg_numbers, 1.5), rotate(line_l, -pi, 1.5))
+	await sleep(2)
 	
-	scene.render(ctx)
+	complex_line = Circle(0, 0, 0, None, None)
+	line_r = Line(scene.scene_width / 2, 1.2, 0, 0, '#888', '#888', rotate=-pi/2)
+	complex_line['line_r'] = line_r
+	line_l = Line(scene.scene_width / 2, 1.2, 0, 0, '#88f', '#88f', rotate=pi/2)
+	complex_line['line_l'] = line_l
+	for n in range(1, 20):
+		line_r[str(n)] = Line(10, 1.2, 50 * n, -5, '#888', '#888', rotate=pi/2)
+		line_l[str(n)] = Line(10, 1.2, 50 * n, -5, '#88f', '#88f', rotate=pi/2)
+		if n == 1:
+			line_r['n' + str(n)] = NonrotatedText("i", 20, 50 * n, 0, '#888')
+			line_l['n' + str(n)] = NonrotatedText("-i", 20, 50 * n, 20, '#88f')
+		else:
+			line_r['n' + str(n)] = NonrotatedText(str(n) + "i", 20, 50 * n, 0, '#888')
+			line_l['n' + str(n)] = NonrotatedText(str(-n) + "i", 20, 50 * n, 40, '#88f')
+	
+	group['complex'] = complex_line
+	
+	await increase_radius(complex_line, scene.scene_height / 2, 2)
+	
+	await sleep(2.2)
+	
+	del scene[f'animate_complex_plane_{rr}']
 
 
-def key_release_event(widget, event):
-	if Gdk.keyval_name(event.keyval) == 'Escape':
-		window.close()
+def create_complex_plane(scene):
+	group = Actor(scene.scene_width / 2, scene.scene_height / 2, '#000', '#000')
+	
+	group['central_point'] = Circle(2.5, 0, 0, '#000', '#000')
+	
+	line_r = Line(scene.scene_width / 2, 1.2, 0, 0, '#000', '#000')
+	group['line_r'] = line_r
+	line_l = Line(scene.scene_width / 2, 1.2, 0, 0, '#00f', '#00f', rotate=pi)
+	group['line_l'] = line_l
+	line_u = Line(scene.scene_width / 2, 1.2, 0, 0, '#888', '#888', rotate=-pi/2)
+	group['line_u'] = line_u
+	line_d = Line(scene.scene_width / 2, 1.2, 0, 0, '#88f', '#88f', rotate=pi/2)
+	group['line_d'] = line_d
+	
+	for n in range(20):
+		line_r[str(n)] = Line(10, 1.2, 50 * n, -5, '#000', '#000', rotate=pi/2)
+		line_r['n' + str(n)] = Text(str(n), 20, 50 * n, -25, '#000')
+		line_l[str(n)] = Line(10, 1.2, 50 * n, -5, '#00f', '#00f', rotate=pi/2)
+		if n > 0:
+			line_l['n' + str(n)] = NonrotatedText(str(-n), 20, 50 * n, -25, '#00f')
+	
+	for n in range(1, 20):
+		line_u[str(n)] = Line(10, 1.2, 50 * n, -5, '#888', '#888', rotate=pi/2)
+		line_d[str(n)] = Line(10, 1.2, 50 * n, -5, '#88f', '#88f', rotate=pi/2)
+		if n == 1:
+			line_u['n' + str(n)] = NonrotatedText("i", 20, 50 * n, 0, '#888')
+			line_d['n' + str(n)] = NonrotatedText("-i", 20, 50 * n, 20, '#88f')
+		elif n > 1:
+			line_u['n' + str(n)] = NonrotatedText(str(n) + "i", 20, 50 * n, 0, '#888')
+			line_d['n' + str(n)] = NonrotatedText(str(-n) + "i", 20, 50 * n, 40, '#88f')
+	
+	return group
 
 
-def configure_event(widget, event):
-	global viewport_width, viewport_height
-	viewport_width = event.width
-	viewport_height = event.height
+async def animate_simple_complex_operations(scene):
+	rr = randbelow(1000000)
+	scene[f'complex_plane_{rr}'] = create_complex_plane(scene)
+	
+	await sleep(0.5)
+	
+	scene['info'] = Text("", 40, scene.scene_width / 2 + 45, scene.scene_height / 2 - 95, '#f00')
+	
+	scene['info'].text = "i**2 = -1"
+	await fadein(scene['info'], 0.3)
+	await sleep(2)
+	await fadeout(scene['info'], 0.3)
+	
+	scene['info'].text = "sqrt(-1) = i"
+	await fadein(scene['info'], 0.3)
+	await sleep(2)
+	await fadeout(scene['info'], 0.3)
+	
+	del scene['info']
+	
+	del scene[f'complex_plane_{rr}']
 
 
-mainloop = GLib.MainLoop()
-
-window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
-widget = Gtk.DrawingArea()
-window.add(widget)
-window.show_all()
-
-widget.connect('configure-event', configure_event)
-widget.connect('draw', draw)
-window.connect('key-release-event', key_release_event)
-window.connect('destroy', lambda window: mainloop.quit())
-signal(SIGTERM, lambda signum, frame: mainloop.quit())
 
 
-GLib.idle_add(lambda: run(animate()))
 
-def redraw():
-	widget.queue_draw()
-	return True
+if __name__ == '__main__':
+	from gtk_app import run_animation
+	
+	scene = Scene(1920, 1080)
+	
+	#scene['f1'] = Fractal([(150, 0, 0.5, 0.5, 0), (-150, 0, 0.5, 0.5, 0), (0, 200, 0.33, 0.33, pi/4.5), (0, -200, 0.33, 0.33, pi/3)], 8, scene.scene_width / 2, scene.scene_height / 2)
+	#scene['f1']['1'] = Circle(300, 0, 0, '#f00', None)
+	
+	#scene['f2'] = Fractal([(150, 0, 0.5, 0.5, 0), (-150, 0, 0.5, 0.5, 0), (0, 200, 0.33, 0.33, pi/3.5), (0, -200, 0.33, 0.33, pi/3)], 8, scene.scene_width / 2, scene.scene_height / 2)
+	#scene['f1']['2'] = Line(300, 5, 0, 0, None, '#0f0')
+	
+	#for n in range(15):
+	#	scene[f'f{n}'] = Fractal([(5, 0, 0.8, 0.8, pi/50)], n, scene.scene_width / 2, scene.scene_height / 2)
+	#	scene[f'f{n}']['c'] = Circle(75, 0, 0, ((15 - n)**2 / 15**2, 0.5, 0.5, 1), None)
+	
+	#async def animate(scene):
+	#	pass
+	
+	async def animate(scene):
+		scene['1'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/967391.png', scene.scene_width / 2, scene.scene_height / 2, None, None, alpha=0.025)
+		scene['1']['2'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/470563.png', 0, 0, None, None)
+		scene['1']['2']['3'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/878415.png', 0, 0, None, None)
+		scene['4'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/894423.png', scene.scene_width / 2, scene.scene_height / 2, None, None, alpha=0.025)
+		scene['4']['5'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/876443.png', 0, 0, None, None)
+		scene['4']['5']['6'] = Bubbles.random(scene.scene_width / 2,  '/home/haael/Pobrane/fractals/876859.png', 0, 0, None, None)
+		
+		fg_running = True
+		
+		async def animate_bg():
+			nonlocal fg_running
+			while fg_running:
+				await gather(
+					rotate(scene['1'], pi / 10, 2),
+					move_bubbles(scene['1'], 2),
+					move_bubbles(scene['1']['2'], 2),
+					move_bubbles(scene['1']['2']['3'], 2),
+					rotate(scene['4'], -pi / 10, 2),
+					move_bubbles(scene['4'], 2),
+					move_bubbles(scene['4']['5'], 2),
+					move_bubbles(scene['4']['5']['6'], 2)
+				)
+		
+		async def animate_fg():
+			nonlocal fg_running
+			await animate_button(scene)
+			await animate_complex_plane(scene)
+			await animate_simple_complex_operations(scene)
+			fg_running = False
+		
+		await gather(animate_bg(), animate_fg())
+		
+		#del scene['1']
+		#del scene['4']
+	
+	run_animation(scene, animate(scene))
 
-GLib.timeout_add(25, redraw)
 
-try:
-	mainloop.run()
-except KeyboardInterrupt:
-	print()
+
+
 
