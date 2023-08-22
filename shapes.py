@@ -65,6 +65,12 @@ class Actor:
 		del self.child[name]
 	
 	def render(self, ctx, alpha=1):
+		if hasattr(self, 'cached'):
+			ctx.set_source_surface(self.cached, -1500, -1500)
+			#ctx.translate(1000, 1000)
+			ctx.paint_with_alpha(alpha)
+			return
+		
 		ctx.save()
 		
 		ctx.translate(self.x, self.y)
@@ -80,11 +86,29 @@ class Actor:
 			ctx.rotate(self.rotate)
 		
 		for item in self.child.values():
-			ctx.save()
-			item.render(ctx, self.alpha * alpha)
-			ctx.restore()
+			if self.alpha * alpha < 1:
+				ctx.push_group()
+			else:
+				ctx.save()
+			
+			item.render(ctx)
+			
+			if self.alpha * alpha < 1:
+				ctx.pop_group_to_source()
+				ctx.paint_with_alpha(self.alpha * alpha)
+			else:
+				ctx.restore()
 		
 		ctx.restore()
+	
+	def cache(self):
+		cached = cairo.ImageSurface(cairo.Format.ARGB32, 3000, 3000)
+		#cached = cairo.RecordingSurface(cairo.Content.COLOR_ALPHA, None)
+		ctx = cairo.Context(cached)
+		ctx.translate(1500, 1500)
+		self.render(ctx)
+		#cached.finish()
+		self.cached = cached
 
 
 class Scene(Actor):
@@ -117,9 +141,37 @@ class Circle(Actor):
 		super().render(ctx, alpha)
 
 
-class Line(Actor):
-	def __init__(self, length, width, x, y, fill, stroke, **kwargs):
+class HollowCircle(Actor):
+	def __init__(self, outer_radius, inner_radius, x, y, fill, stroke, **kwargs):
 		super().__init__(x, y, fill, stroke, **kwargs)
+		self.outer_radius = outer_radius
+		self.inner_radius = inner_radius
+	
+	def render(self, ctx, alpha=1):
+		if alpha <= 0: return
+		
+		ctx.set_fill_rule(cairo.FillRule.EVEN_ODD)
+		ctx.arc(self.x, self.y, self.outer_radius, 0, 2 * pi)
+		#ctx.close_path()
+		ctx.arc(self.x, self.y, self.inner_radius, 0, 2 * pi)
+		#ctx.clip()
+		
+		if any(self.fill):
+			ctx.set_source_rgba(*self.fill[:3], self.fill[3] * self.alpha * alpha)
+			ctx.fill_preserve()
+		
+		if any(self.stroke):
+			ctx.set_source_rgba(*self.stroke[:3], self.stroke[3] * self.alpha * alpha)
+			ctx.stroke_preserve()
+		
+		ctx.clip()
+		
+		super().render(ctx, alpha)
+
+
+class Line(Actor):
+	def __init__(self, length, width, x, y, color, rotate, **kwargs):
+		super().__init__(x, y, None, color, rotate=rotate, **kwargs)
 		self.length = length
 		self.width = width
 	

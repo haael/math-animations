@@ -9,22 +9,28 @@ def randbelow(n):
 	return randint(0, n - 1)
 
 
-async def fadein(actor, duration):
+async def fadein(actor, duration, alpha=1):
+	start = actor.alpha
+	
 	steps = ceil(25 * duration)
 	for n in range(steps):
-		actor.alpha = n**2 / steps**2
+		k = n**2 / steps**2
+		actor.alpha = (1 - k) * start + k * alpha
 		await sleep(1 / 25)
 	
-	actor.alpha = 1
+	actor.alpha = alpha
 
 
-async def fadeout(actor, duration):
+async def fadeout(actor, duration, alpha=0):
+	start = actor.alpha
+	
 	steps = ceil(25 * duration)
 	for n in range(steps):
-		actor.alpha = (steps - n - 1)**2 / steps**2
+		k = (steps - n - 1)**2 / steps**2
+		actor.alpha = k * start + (1 - k) * alpha
 		await sleep(1 / 25)
 	
-	actor.alpha = 0
+	actor.alpha = alpha
 
 
 async def translate(actor, tx, ty, duration):
