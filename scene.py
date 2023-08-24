@@ -3,16 +3,80 @@
 
 import cairo
 from math import *
-from asyncio import run, set_event_loop_policy, sleep, gather
+from asyncio import sleep, gather, create_task, run, CancelledError
 
 from shapes import *
 from animations import *
 
 
-async def animate_button(scene):
-	rr = randbelow(1000000)
+
+class Animation:
+	def __init__(self, bg_anim=None, *takes):
+		self.running = True
+		self.finished = False
+		self.bg_anim = bg_anim
+		self.take_animations = list(takes)
+		self.take_no = 0
+	
+	def take(self, take):
+		self.take_animations.append(take)
+		return take
+	
+	async def animate(self, scene):
+		await gather(self.animate_background(scene), self.animate_foreground(scene))
+	
+	async def animate_foreground(self, scene):
+		self.take_no = 0
+		while not self.finished:
+			self.__take = create_task(self.animate_take(scene))
+			await self.__take
+	
+	async def animate_background(self, scene):
+		while not self.finished:
+			if self.running:
+				self.__bg = create_task(self.bg_anim(scene))
+			else:
+				self.__bg = create_task(sleep(1))
+			
+			try:
+				await self.__bg
+			except CancelledError:
+				pass
+	
+	async def animate_take(self, scene):
+		try:
+			if self.running:
+				if 0 <= self.take_no < len(self.take_animations):
+					await self.take_animations[self.take_no](scene)
+				else:
+					self.finished = True
+			else:
+				await sleep(1)
+		except CancelledError:
+			pass
+		else:
+			if self.running:
+				self.take_no += 1
+	
+	def pause(self):
+		self.running = False
+		self.__bg.cancel()
+		self.__take.cancel()
+	
+	def resume(self):
+		self.running = True
+		self.__bg.cancel()
+		self.__take.cancel()
+	
+	def stop(self):
+		self.finished = True
+		self.__bg.cancel()
+		self.__take.cancel()
+
+
+async def animate_button(scene, name='animate_button'):
 	group = Circle(100, scene.scene_width / 2, 0, '#800', '#f0f', alpha=0)
-	scene[f'animate_button_{rr}'] = group
+	scene[name] = group
 	await sleep(0.5)
 	
 	await gather(
@@ -35,13 +99,12 @@ async def animate_button(scene):
 	await sleep(1)
 	await fadeout(group, 1.5)
 	await sleep(1)
-	del scene[f'animate_button_{rr}']
+	del scene[name]
 
 
-async def animate_complex_plane(scene):
-	rr = randbelow(1000000)
+async def animate_complex_plane(scene, name='animate_complex_plane'):
 	group = Actor(scene.scene_width / 2, scene.scene_height / 2, '#000', '#000')
-	scene[f'animate_complex_plane_{rr}'] = group
+	scene[name] = group
 	
 	group['central_point'] = Circle(2.5, 0, 0, '#000', '#000')
 	
@@ -88,7 +151,7 @@ async def animate_complex_plane(scene):
 	
 	await sleep(2.2)
 	
-	del scene[f'animate_complex_plane_{rr}']
+	del scene[name]
 
 
 def create_complex_plane(scene):
@@ -125,9 +188,8 @@ def create_complex_plane(scene):
 	return group
 
 
-async def animate_simple_complex_operations(scene):
-	rr = randbelow(1000000)
-	scene[f'complex_plane_{rr}'] = create_complex_plane(scene)
+async def animate_simple_complex_operations(scene, name='complex_plane'):
+	scene[name] = create_complex_plane(scene)
 	
 	await sleep(0.5)
 	
@@ -145,10 +207,7 @@ async def animate_simple_complex_operations(scene):
 	
 	del scene['info']
 	
-	del scene[f'complex_plane_{rr}']
-
-
-
+	del scene[name]
 
 
 if __name__ == '__main__':
@@ -156,102 +215,87 @@ if __name__ == '__main__':
 	
 	scene = Scene(1920, 1080)
 		
+	background = Actor(0, 0, None, None)
 	
-	async def animate(scene):
-		fg_running = True
-		
-		background = Actor(0, 0, None, None)
-		gk = Actor(0, 0, None, None)
-		ifs = []
-		for n in range(8):
-			ifs.append((randint(-600, 600), randint(-600, 600), 0.5, 0.5, (randbelow(90) / 90) * 2 * pi))
-		for n in range(1, 6):
-			gk[f'f{n}'] = Fractal(ifs, n, 0, 0)
-			gk[f'f{n}']['c'] = Circle(10, 0, 0, '#000', None)
-		gg = Actor(scene.scene_width / 2 + randint(-300, 300), scene.scene_height / 2 + randint(-300, 300), None, None)
-		background['gg1'] = gg
-		background['gg1']['gk'] = gk
-		gk.cache()
-		
-		gk = Actor(0, 0, None, None)
-		ifs = []
-		for n in range(8):
-			ifs.append((randint(-600, 600), randint(-600, 600), 0.5, 0.5, (randbelow(90) / 90) * 2 * pi))
-		for n in range(1, 6):
-			gk[f'f{n}'] = Fractal(ifs, n, 0, 0)
-			gk[f'f{n}']['c'] = Circle(10, 0, 0, '#00f', None)
-		gg = Actor(scene.scene_width / 2 + randint(-300, 300), scene.scene_height / 2 + randint(-300, 300), None, None)
-		background['gg2'] = gg
-		background['gg2']['gk'] = gk
-		gk.cache()
-		
-		gk = Actor(0, 0, None, None)
-		for m in range(6):
-			g = Actor(0, 0, None, None, rotate=2 * pi * (randbelow(24) / 24))
-			ifs = [(500, 0, 1/2, 1/2, 2 * pi * (randbelow(12) / 12)), (500, 0, 1/3, 1/3, 2 * pi * (randbelow(12) / 12)), (500, 0, 1/4, 1/4, 2 * pi * (randbelow(12) / 12)), (500, 0, 1/5, 1/5, 2 * pi * (randbelow(12) / 12))]
-			for n in range(2, 7):
-				g[f'f{n}'] = Fractal(ifs, n, 0, 0)
-				g[f'f{n}']['c'] = HollowCircle(450 + randbelow(100), 390 + randbelow(50), 0, 0, '#ee4', '#000')
-				g[f'f{n}']['l1'] = Line(3000, 0.5, 0, 0, '#000', 2 * pi * (randbelow(36) / 36))
-				g[f'f{n}']['l1'] = Line(3000, 0.5, 0, 0, '#000', 2 * pi * (randbelow(36) / 36))
-				g[f'f{n}']['l3'] = Line(3000, 1, 0, 0, '#000', 2 * pi * (randbelow(36) / 36))
-			gk[f'g{m}'] = g	
-		gg = Actor(scene.scene_width / 2, scene.scene_height / 2, None, None)
-		background['gg3'] = gg
-		background['gg3']['gk'] = gk
-		gk.cache()
-		
-		scene['bg'] = background
-		
-		async def animate_bg():
-			nonlocal fg_running
-			while fg_running:
-				await gather(
-					rotate(scene['bg']['gg1'], 2 * pi / 30, 2),
-					rotate(scene['bg']['gg2'], -2 * pi / 90, 2),
-					rotate(scene['bg']['gg3'], pi / 60, 2),
-					translate(scene['bg']['gg1'], randint(-50, 50), randint(-50, 50), 2),
-					translate(scene['bg']['gg2'], randint(-50, 50), randint(-50, 50), 2)
-				)
-		
-		#scene['1'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/967391.png', scene.scene_width / 2, scene.scene_height / 2, None, None, alpha=0.025)
-		#scene['1']['2'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/470563.png', 0, 0, None, None)
-		#scene['1']['2']['3'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/878415.png', 0, 0, None, None)
-		#scene['4'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/894423.png', scene.scene_width / 2, scene.scene_height / 2, None, None, alpha=0.025)
-		#scene['4']['5'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/876443.png', 0, 0, None, None)
-		#scene['4']['5']['6'] = Bubbles.random(scene.scene_width / 2,  '/home/haael/Pobrane/fractals/876859.png', 0, 0, None, None)
-		
-		
-		#async def animate_bg():
-		#	nonlocal fg_running
-		#	while fg_running:
-		#		await gather(
-		#			rotate(scene['1'], pi / 10, 2),
-		#			move_bubbles(scene['1'], 2),
-		#			move_bubbles(scene['1']['2'], 2),
-		#			move_bubbles(scene['1']['2']['3'], 2),
-		#			rotate(scene['4'], -pi / 10, 2),
-		#			move_bubbles(scene['4'], 2),
-		#			move_bubbles(scene['4']['5'], 2),
-		#			move_bubbles(scene['4']['5']['6'], 2)
-		#		)
-		
-		async def animate_fg():
-			nonlocal fg_running
-			await sleep(5)
-			await animate_button(scene)
-			await fadeout(background, 1, 0.10)
-			await sleep(1)
-			await animate_complex_plane(scene)
-			await animate_simple_complex_operations(scene)
-			fg_running = False
-		
-		await gather(animate_bg(), animate_fg())
-		
-		#del scene['1']
-		#del scene['4']
+	background['layer3'] = Actor(scene.scene_width / 2 + randint(-300, 300), scene.scene_height / 2 + randint(-300, 300), None, None)
+	img = Actor(0, 0, None, None)
+	background['layer3']['img'] = img
+	ifs = []
+	for n in range(8):
+		ifs.append((randint(-600, 600), randint(-600, 600), 0.5, 0.5, (randbelow(90) / 90) * 2 * pi))
+	for n in range(1, 6):
+		img[f'f{n}'] = Fractal(ifs, n, 0, 0)
+		img[f'f{n}']['c'] = Circle(10, 0, 0, '#fff', None)
+	img.cache()
 	
-	run_animation(scene, animate(scene))
+	background['layer2'] = Actor(scene.scene_width / 2 + randint(-300, 300), scene.scene_height / 2 + randint(-300, 300), None, None)
+	img = Actor(0, 0, None, None)
+	background['layer2']['img'] = img
+	ifs = []
+	for n in range(8):
+		ifs.append((randint(-600, 600), randint(-600, 600), 0.5, 0.5, (randbelow(90) / 90) * 2 * pi))
+	for n in range(1, 6):
+		img[f'f{n}'] = Fractal(ifs, n, 0, 0)
+		img[f'f{n}']['c'] = Circle(10, 0, 0, '#bbf', None)
+	img.cache()
+	
+	background['layer1'] = Bubbles.random(scene.scene_width / 2, '/home/haael/Pobrane/fractals/967391.png', scene.scene_width / 2, scene.scene_height / 2, None, None)
+	#background['layer3'] = Actor(scene.scene_width / 2, scene.scene_height / 2, None, None)
+	img = Actor(0, 0, None, None)
+	background['layer1']['img'] = img
+	for m in range(6):
+		g = Actor(0, 0, None, None, rotate=2 * pi * (randbelow(24) / 24))
+		ifs = [(500, 0, 1/2, 1/2, 2 * pi * (randbelow(12) / 12)), (500, 0, 1/3, 1/3, 2 * pi * (randbelow(12) / 12)), (500, 0, 1/4, 1/4, 2 * pi * (randbelow(12) / 12)), (500, 0, 1/5, 1/5, 2 * pi * (randbelow(12) / 12))]
+		for n in range(2, 7):
+			g[f'f{n}'] = Fractal(ifs, n, 0, 0)
+			g[f'f{n}']['c'] = HollowCircle(450 + randbelow(100), 390 + randbelow(50), 0, 0, '#ee4', '#000')
+			g[f'f{n}']['l1'] = Line(3000, 0.5, 0, 0, '#000', 2 * pi * (randbelow(36) / 36))
+			g[f'f{n}']['l1'] = Line(3000, 0.5, 0, 0, '#000', 2 * pi * (randbelow(36) / 36))
+			g[f'f{n}']['l3'] = Line(3000, 1, 0, 0, '#000', 2 * pi * (randbelow(36) / 36))
+		img[f'g{m}'] = g	
+	img.cache()
+	
+	scene['bg'] = background
+		
+	async def animate_background(scene):
+		await gather(
+			rotate(scene['bg']['layer3'], 2 * pi / 30, 2),
+			rotate(scene['bg']['layer2'], -2 * pi / 90, 2),
+			rotate(scene['bg']['layer1'], pi / 60, 2),
+			translate(scene['bg']['layer3'], randint(-50, 50), randint(-50, 50), 2),
+			translate(scene['bg']['layer2'], randint(-50, 50), randint(-50, 50), 2),
+			move_bubbles(scene['bg']['layer1'], 2)
+		)
+
+	animation = Animation(animate_background)
+	
+	@animation.take
+	async def take0(scene):
+		scene['bg'].alpha = 1
+		if 'take' in scene: del scene['take']
+		await sleep(2)
+	
+	@animation.take
+	async def take1(scene):
+		scene['bg'].alpha = 1
+		if 'take' in scene: del scene['take']
+		await animate_button(scene, 'take')
+		await fadeout(background, 1, 0.1)
+	
+	@animation.take
+	async def take2(scene):
+		scene['bg'].alpha = 0.1
+		if 'take' in scene: del scene['take']
+		await sleep(1)
+		await animate_complex_plane(scene)
+	
+	@animation.take
+	async def take3(scene):
+		scene['bg'].alpha = 0.1
+		if 'take' in scene: del scene['take']
+		await animate_simple_complex_operations(scene)	
+	
+	run_animation(scene, animation)
 
 
 

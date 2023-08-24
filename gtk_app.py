@@ -29,9 +29,25 @@ def draw(widget, ctx):
 	scene.render(ctx)
 
 
-def key_release_event(widget, event):
+def key_release_event(widget, event, animation):
 	if Gdk.keyval_name(event.keyval) == 'Escape':
+		animation.stop()
 		widget.close()
+	elif Gdk.keyval_name(event.keyval) == 'space':
+		if animation.running:
+			animation.pause()
+		else:
+			animation.resume()
+	elif Gdk.keyval_name(event.keyval) == 'Right':
+		animation.pause()
+		animation.take_no += 1
+		animation.resume()
+	elif Gdk.keyval_name(event.keyval) == 'Left':
+		animation.pause()
+		animation.take_no -= 1
+		animation.resume()
+	else:
+		print(Gdk.keyval_name(event.keyval))
 
 
 def configure_event(widget, event):
@@ -62,12 +78,12 @@ def run_animation(scene, animation):
 	
 	widget.connect('configure-event', configure_event)
 	widget.connect('draw', draw)
-	window.connect('key-release-event', key_release_event)
+	window.connect('key-release-event', key_release_event, animation)
 	widget.connect('destroy', lambda window: mainloop.quit())
 	
 	signal(SIGTERM, lambda signum, frame: mainloop.quit())	
 	
-	GLib.idle_add(lambda: run(animation))
+	GLib.idle_add(lambda: run(animation.animate(scene)))
 	
 	try:
 		mainloop.run()

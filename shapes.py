@@ -54,6 +54,9 @@ class Actor:
 		self.rotate = rotate
 		self.child = {}
 	
+	def __contains__(self, name):
+		return name in self.child
+	
 	def __getitem__(self, name):
 		return self.child[name]
 	
@@ -85,7 +88,9 @@ class Actor:
 		if self.rotate:
 			ctx.rotate(self.rotate)
 		
-		for item in self.child.values():
+		for key in sorted(self.child.keys()):
+			item = self.child[key]
+			
 			if self.alpha * alpha < 1:
 				ctx.push_group()
 			else:
@@ -268,20 +273,24 @@ class Bubbles(Actor):
 	def __init__(self, bubbles, background, x, y, fill, stroke, **kwargs):
 		super().__init__(x, y, fill, stroke, **kwargs)
 		self.bubbles = bubbles
-		self.background = cairo.ImageSurface.create_from_png(background)
+		if background is not None:
+			self.background = cairo.ImageSurface.create_from_png(background)
+		else:
+			self.background = None
 	
 	def render(self, ctx, alpha=1):
 		if alpha <= 0: return
 		
-		ctx.save()
-		#ctx.translate(self.x, self.y)
-		#ctx.rotate(self.rotate)
-		#ctx.translate(-self.x, -self.y)
-		#ctx.scale(3, 3)
-		ctx.identity_matrix()
-		ctx.set_source_surface(self.background)
-		ctx.paint_with_alpha(self.alpha * alpha)
-		ctx.restore()
+		if self.background is not None:
+			ctx.save()
+			#ctx.translate(self.x, self.y)
+			#ctx.rotate(self.rotate)
+			#ctx.translate(-self.x, -self.y)
+			#ctx.scale(3, 3)
+			ctx.identity_matrix()
+			ctx.set_source_surface(self.background)
+			ctx.paint_with_alpha(self.alpha * alpha)
+			ctx.restore()
 		
 		for x, y, radius in self.bubbles:
 			ctx.arc(self.x + x * cos(self.rotate) + y * sin(self.rotate), self.y - x * sin(self.rotate) + y * cos(self.rotate), radius, 0, 2 * pi)
