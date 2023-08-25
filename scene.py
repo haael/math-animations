@@ -11,11 +11,11 @@ from animations import *
 
 
 class Animation:
-	def __init__(self, bg_anim=None, *takes):
+	def __init__(self, bg_anim=None):
 		self.running = True
 		self.finished = False
 		self.bg_anim = bg_anim
-		self.take_animations = list(takes)
+		self.take_animations = []
 		self.take_no = 0
 	
 	def take(self, take):
@@ -103,7 +103,7 @@ async def animate_button(scene, name='animate_button'):
 
 
 async def animate_complex_plane(scene, name='animate_complex_plane'):
-	group = Actor(scene.scene_width / 2, scene.scene_height / 2, '#000', '#000')
+	group = Actor(scene.scene_width / 2, scene.scene_height / 2, None, None)
 	scene[name] = group
 	
 	group['central_point'] = Circle(2.5, 0, 0, '#000', '#000')
@@ -155,7 +155,7 @@ async def animate_complex_plane(scene, name='animate_complex_plane'):
 
 
 def create_complex_plane(scene):
-	group = Actor(scene.scene_width / 2, scene.scene_height / 2, '#000', '#000')
+	group = Actor(0, 0, '#000', '#000')
 	
 	group['central_point'] = Circle(2.5, 0, 0, '#000', '#000')
 	
@@ -189,23 +189,23 @@ def create_complex_plane(scene):
 
 
 async def animate_simple_complex_operations(scene, name='complex_plane'):
-	scene[name] = create_complex_plane(scene)
+	group = Actor(scene.scene_width / 2, scene.scene_height / 2, None, None)
+	scene[name] = group
+	group['coords'] = create_complex_plane(scene)
 	
 	await sleep(0.5)
 	
-	scene['info'] = Text("", 40, scene.scene_width / 2 + 45, scene.scene_height / 2 - 95, '#f00')
+	group['info'] = Text("", 40, 45, -95, '#f00')
 	
-	scene['info'].text = "i**2 = -1"
-	await fadein(scene['info'], 0.3)
+	group['info'].text = "i**2 = -1"
+	await fadein(group['info'], 0.3)
 	await sleep(2)
-	await fadeout(scene['info'], 0.3)
+	await fadeout(group['info'], 0.3)
 	
-	scene['info'].text = "sqrt(-1) = i"
-	await fadein(scene['info'], 0.3)
+	group['info'].text = "sqrt(-1) = i"
+	await fadein(group['info'], 0.3)
 	await sleep(2)
-	await fadeout(scene['info'], 0.3)
-	
-	del scene['info']
+	await fadeout(group['info'], 0.3)
 	
 	del scene[name]
 
@@ -214,7 +214,7 @@ if __name__ == '__main__':
 	from gtk_app import run_animation
 	
 	scene = Scene(1920, 1080)
-		
+	
 	background = Actor(0, 0, None, None)
 	
 	background['layer3'] = Actor(scene.scene_width / 2 + randint(-300, 300), scene.scene_height / 2 + randint(-300, 300), None, None)
@@ -287,13 +287,13 @@ if __name__ == '__main__':
 		scene['bg'].alpha = 0.1
 		if 'take' in scene: del scene['take']
 		await sleep(1)
-		await animate_complex_plane(scene)
+		await animate_complex_plane(scene, 'take')
 	
 	@animation.take
 	async def take3(scene):
 		scene['bg'].alpha = 0.1
 		if 'take' in scene: del scene['take']
-		await animate_simple_complex_operations(scene)	
+		await animate_simple_complex_operations(scene, 'take')
 	
 	run_animation(scene, animation)
 
